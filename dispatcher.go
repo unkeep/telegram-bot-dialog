@@ -9,6 +9,10 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+func NewDispatcher(storage Storage) *Dispatcher {
+	return &Dispatcher{storage: storage}
+}
+
 // Dispatcher routes users messages to an appropriate dialog
 type Dispatcher struct {
 	storage     Storage
