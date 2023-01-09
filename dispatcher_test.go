@@ -79,7 +79,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 		upd := upd
 		t.Run(name, func(t *testing.T) {
 			storageGetCalls := 0
-			storage.GetDialogFunc = func(gotChatID, gotUserID int64) (*Data, error) {
+			storage.GetDialogFunc = func(ctx context.Context, gotChatID, gotUserID int64) (*Data, error) {
 				storageGetCalls++
 				assert.Equal(t, chatID, gotChatID)
 				assert.Equal(t, userID, gotUserID)
@@ -90,7 +90,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 			assert.Equal(t, 1, storageGetCalls)
 
 			t.Run("storage fails", func(t *testing.T) {
-				storage.GetDialogFunc = func(_, _ int64) (*Data, error) {
+				storage.GetDialogFunc = func(_ context.Context, _, _ int64) (*Data, error) {
 					return nil, fmt.Errorf("test")
 				}
 
@@ -130,7 +130,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 				setup := setup
 				t.Run(name, func(t *testing.T) {
 					setup(t)
-					storage.GetDialogFunc = func(_, _ int64) (*Data, error) {
+					storage.GetDialogFunc = func(_ context.Context, _, _ int64) (*Data, error) {
 						return storageData, storageErrNotFound
 					}
 
@@ -225,7 +225,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 								shouldSaveNewDialog := handlerDlg.name != newDlg.name || handlerDlg.State != newDlg.State
 								if shouldSaveNewDialog {
 									expectedStorageSaveCalls = 1
-									storage.SaveDialogFunc = func(gotChatID, gotUserID int64, gotData *Data) error {
+									storage.SaveDialogFunc = func(_ context.Context, gotChatID, gotUserID int64, gotData *Data) error {
 										storageSaveCalls++
 										assert.Equal(t, chatID, gotChatID)
 										assert.Equal(t, userID, gotUserID)
@@ -245,7 +245,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 									assert.NoError(t, err)
 								} else {
 									t.Run("storage Save fails", func(t *testing.T) {
-										storage.SaveDialogFunc = func(_, _ int64, _ *Data) error {
+										storage.SaveDialogFunc = func(_ context.Context, _, _ int64, _ *Data) error {
 											return fmt.Errorf("test")
 										}
 
@@ -254,7 +254,7 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 									})
 
 									t.Run("storage Save succeeds", func(t *testing.T) {
-										storage.SaveDialogFunc = func(_, _ int64, _ *Data) error {
+										storage.SaveDialogFunc = func(_ context.Context, _, _ int64, _ *Data) error {
 											return nil
 										}
 
@@ -292,14 +292,14 @@ func (d *dialogMock) OnCallbackQuery(ctx context.Context, updateID int, q *tgbot
 }
 
 type storageMock struct {
-	GetDialogFunc  func(chatID, userID int64) (*Data, error)
-	SaveDialogFunc func(chatID, userID int64, data *Data) error
+	GetDialogFunc  func(ctx context.Context, chatID, userID int64) (*Data, error)
+	SaveDialogFunc func(ctx context.Context, chatID, userID int64, data *Data) error
 }
 
-func (s *storageMock) GetDialog(chatID, userID int64) (*Data, error) {
-	return s.GetDialogFunc(chatID, userID)
+func (s *storageMock) GetDialog(ctx context.Context, chatID, userID int64) (*Data, error) {
+	return s.GetDialogFunc(ctx, chatID, userID)
 }
 
-func (s *storageMock) SaveDialog(chatID, userID int64, data *Data) error {
-	return s.SaveDialogFunc(chatID, userID, data)
+func (s *storageMock) SaveDialog(ctx context.Context, chatID, userID int64, data *Data) error {
+	return s.SaveDialogFunc(ctx, chatID, userID, data)
 }

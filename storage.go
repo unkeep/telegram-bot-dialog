@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
@@ -18,7 +19,7 @@ type Data struct {
 type Storage interface {
 	// GetDialog returns current dialog data
 	// ErrNotFound must be returned if there is no such dialog
-	GetDialog(chatID, userID int64) (*Data, error)
+	GetDialog(ctx context.Context, chatID, userID int64) (*Data, error)
 	// SaveDialog saves curre
-	SaveDialog(chatID, userID int64, data *Data) error
+	SaveDialog(ctx context.Context, chatID, userID int64, data *Data) error
 }

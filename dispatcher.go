@@ -70,7 +70,7 @@ func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) err
 		return nil
 	}
 
-	data, err := e.storage.GetDialog(chatID, userID)
+	data, err := e.storage.GetDialog(ctx, chatID, userID)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("storage.GetDialog: %w", err)
@@ -109,7 +109,7 @@ func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) err
 		return nil
 	}
 
-	if err := e.storage.SaveDialog(chatID, userID, newData); err != nil {
+	if err := e.storage.SaveDialog(ctx, chatID, userID, newData); err != nil {
 		return fmt.Errorf("storage.SaveDialog: %w", err)
 	}
 
