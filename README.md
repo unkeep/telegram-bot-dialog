@@ -54,6 +54,7 @@ func main() {
 
 type rootDialog struct {
 	bot *tgbotapi.BotAPI
+	IsLoggedIn bool `json:"is_logged_in,omitempty"`
 }
 
 func (d *rootDialog) Name() string {
@@ -61,11 +62,10 @@ func (d *rootDialog) Name() string {
 }
 
 func (d *rootDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
-	if upd.Message == nil {
-		return d, nil
-    }
-	
 	msg := upd.Message
+	if msg == nil {
+		return d, nil
+	}
 	
 	if msg.Text == "/start" {
 		if _, err := d.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Hi! I'm a bot")); err != nil {
@@ -74,7 +74,7 @@ func (d *rootDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgb
 		return d, nil // stay on the same dialog
 	}
 
-	if msg.Text == "/signup" {
+	if msg.Text == "/login" {
 		if _, err := d.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Enter a username")); err != nil {
 			return nil, err
 		}
@@ -96,11 +96,17 @@ func (d *enterUserNameDialog) Name() string {
 }
 
 func (d *enterUserNameDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
-	if upd.Message == nil {
+	msg := upd.Message
+	if msg == nil {
 		return d, nil
 	}
 	
-	username := upd.Message.Text
+	username := msg.Text
+	
+	if _, err := d.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Enter a password")); err != nil {
+		return nil, err
+	}
+	
 	return &enterPasswordDialog{
 		bot:      d.bot,
 		Username: username,
@@ -117,13 +123,19 @@ func (d *enterPasswordDialog) Name() string {
 }
 
 func (d *enterPasswordDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
-	if upd.Message == nil {
+	msg := upd.Message
+	if msg == nil {
 		return d, nil
 	}
-	password := upd.Message.Text
+	
+	password := msg.Text
 	login(d.Username, password)
 
-	return &rootDialog{bot: d.bot}, nil
+	if _, err := d.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "You have successfully logged in")); err != nil {
+		return nil, err
+	}
+
+	return &rootDialog{bot: d.bot, IsLoggedIn: true}, nil
 }
 
 func login(username string, password string) {}
