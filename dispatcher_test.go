@@ -157,44 +157,29 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 							func() Dialog { return dlg1Mock },
 						)
 
-						var onMessageCallsExpected, onMessageCalls int
-						var onCallbackQueryCallsExpected, onCallbackQueryCalls int
-						if upd.Message != nil {
-							onMessageCallsExpected = 1
-							handlerDlg.OnMessageFunc = func(ctx context.Context, updateID int, m *tgbotapi.Message) (Dialog, error) {
-								onMessageCalls++
-								assert.Equal(t, upd.UpdateID, updateID)
-								assert.Equal(t, upd.Message, m)
-								return nil, fmt.Errorf("test")
+						var handleUpdateCalls int
+						handlerDlg.HandleUpdateFunc = func(ctx context.Context, dlgUpd Update) (Dialog, error) {
+							handleUpdateCalls++
+							expectedUpd := Update{
+								ID:            upd.UpdateID,
+								Message:       upd.Message,
+								CallbackQuery: upd.CallbackQuery,
 							}
-						} else if upd.CallbackQuery != nil {
-							onCallbackQueryCallsExpected = 1
-							handlerDlg.OnCallbackQueryFunc = func(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (Dialog, error) {
-								onCallbackQueryCalls++
-								assert.Equal(t, upd.UpdateID, updateID)
-								assert.Equal(t, upd.CallbackQuery, q)
-								return nil, fmt.Errorf("test")
-							}
+							assert.Equal(t, expectedUpd, dlgUpd)
+							return nil, fmt.Errorf("test")
 						}
 
 						_ = dispatcher.HandleUpdate(ctx, upd)
 
-						assert.Equal(t, onMessageCallsExpected, onMessageCalls)
-						assert.Equal(t, onCallbackQueryCallsExpected, onCallbackQueryCalls)
+						assert.Equal(t, 1, handleUpdateCalls)
 
 						if storageData != nil && storageData.State != nil && string(storageData.State) != "{}" {
 							assert.Equal(t, "state1", handlerDlg.State)
 						}
 
 						t.Run("dialog handler fails", func(t *testing.T) {
-							if upd.Message != nil {
-								handlerDlg.OnMessageFunc = func(_ context.Context, _ int, _ *tgbotapi.Message) (Dialog, error) {
-									return nil, fmt.Errorf("test")
-								}
-							} else if upd.CallbackQuery != nil {
-								handlerDlg.OnCallbackQueryFunc = func(_ context.Context, _ int, _ *tgbotapi.CallbackQuery) (Dialog, error) {
-									return nil, fmt.Errorf("test")
-								}
+							handlerDlg.HandleUpdateFunc = func(ctx context.Context, dlgUpd Update) (Dialog, error) {
+								return nil, fmt.Errorf("HandleUpdateFuncErr")
 							}
 
 							err := dispatcher.HandleUpdate(ctx, upd)
@@ -209,14 +194,8 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 						} {
 							newDlg := newDlg
 							t.Run(name, func(t *testing.T) {
-								if upd.Message != nil {
-									handlerDlg.OnMessageFunc = func(_ context.Context, _ int, _ *tgbotapi.Message) (Dialog, error) {
-										return newDlg, nil
-									}
-								} else if upd.CallbackQuery != nil {
-									handlerDlg.OnCallbackQueryFunc = func(_ context.Context, _ int, _ *tgbotapi.CallbackQuery) (Dialog, error) {
-										return newDlg, nil
-									}
+								handlerDlg.HandleUpdateFunc = func(ctx context.Context, dlgUpd Update) (Dialog, error) {
+									return newDlg, nil
 								}
 
 								var expectedStorageSaveCalls int
@@ -272,9 +251,8 @@ func TestDispatcher_HandleUpdate(t *testing.T) {
 }
 
 type dialogMock struct {
-	name                string
-	OnMessageFunc       func(ctx context.Context, updateID int, m *tgbotapi.Message) (Dialog, error)       `json:"-"`
-	OnCallbackQueryFunc func(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (Dialog, error) `json:"-"`
+	name             string
+	HandleUpdateFunc func(ctx context.Context, upd Update) (Dialog, error) `json:"-"`
 
 	State string `json:"state,omitempty"`
 }
@@ -283,12 +261,8 @@ func (d *dialogMock) Name() string {
 	return d.name
 }
 
-func (d *dialogMock) OnMessage(ctx context.Context, updateID int, m *tgbotapi.Message) (Dialog, error) {
-	return d.OnMessageFunc(ctx, updateID, m)
-}
-
-func (d *dialogMock) OnCallbackQuery(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (Dialog, error) {
-	return d.OnCallbackQueryFunc(ctx, updateID, q)
+func (d *dialogMock) HandleUpdate(ctx context.Context, upd Update) (Dialog, error) {
+	return d.HandleUpdateFunc(ctx, upd)
 }
 
 type storageMock struct {

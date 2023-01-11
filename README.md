@@ -59,7 +59,13 @@ func (d *rootDialog) Name() string {
 	return "root"
 }
 
-func (d *rootDialog) OnMessage(ctx context.Context, updateID int, msg *tgbotapi.Message) (dialog.Dialog, error) {
+func (d *rootDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+	if upd.Message == nil {
+		return d, nil
+    }
+	
+	msg := upd.Message
+	
 	if msg.Text == "/start" {
 		if _, err := d.bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "Hi! I'm a bot")); err != nil {
 			return nil, err
@@ -80,10 +86,6 @@ func (d *rootDialog) OnMessage(ctx context.Context, updateID int, msg *tgbotapi.
 	return d, nil
 }
 
-func (d *rootDialog) OnCallbackQuery(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (dialog.Dialog, error) {
-	return d, nil
-}
-
 type enterUserNameDialog struct {
 	bot *tgbotapi.BotAPI
 }
@@ -92,16 +94,16 @@ func (d *enterUserNameDialog) Name() string {
 	return "enter_username"
 }
 
-func (d *enterUserNameDialog) OnMessage(ctx context.Context, updateID int, msg *tgbotapi.Message) (dialog.Dialog, error) {
-	username := msg.Text
+func (d *enterUserNameDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+	if upd.Message == nil {
+		return d, nil
+	}
+	
+	username := upd.Message.Text
 	return &enterPasswordDialog{
 		bot:      d.bot,
 		Username: username,
 	}, nil
-}
-
-func (d *enterUserNameDialog) OnCallbackQuery(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (dialog.Dialog, error) {
-	return d, nil
 }
 
 type enterPasswordDialog struct {
@@ -113,15 +115,14 @@ func (d *enterPasswordDialog) Name() string {
 	return "enter_password"
 }
 
-func (d *enterPasswordDialog) OnMessage(ctx context.Context, updateID int, msg *tgbotapi.Message) (dialog.Dialog, error) {
-	password := msg.Text
+func (d *enterPasswordDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+	if upd.Message == nil {
+		return d, nil
+	}
+	password := upd.Message.Text
 	login(d.Username, password)
 
 	return &rootDialog{bot: d.bot}, nil
-}
-
-func (d *enterPasswordDialog) OnCallbackQuery(ctx context.Context, updateID int, q *tgbotapi.CallbackQuery) (dialog.Dialog, error) {
-	return d, nil
 }
 
 func login(username string, password string) {}

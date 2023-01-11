@@ -44,28 +44,15 @@ func (e *Dispatcher) RegisterDialogs(newRootFunc func() Dialog, newDlgFuncs ...f
 // Note: it currently ignores other updates than users messages or inline buttons clicks
 func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) error {
 	var chatID, userID int64
-
-	var handler func(Dialog) (Dialog, error)
+	var dlgUpd Update
 
 	switch {
 	case upd.Message != nil:
 		chatID, userID = upd.Message.Chat.ID, upd.Message.From.ID
-		handler = func(dialog Dialog) (Dialog, error) {
-			newDlg, err := dialog.OnMessage(ctx, upd.UpdateID, upd.Message)
-			if err != nil {
-				return nil, fmt.Errorf("OnMessage: %w", err)
-			}
-			return newDlg, nil
-		}
+		dlgUpd.Message = upd.Message
 	case upd.CallbackQuery != nil && upd.CallbackQuery.Message != nil:
 		chatID, userID = upd.CallbackQuery.Message.Chat.ID, upd.CallbackQuery.From.ID
-		handler = func(dialog Dialog) (Dialog, error) {
-			newDlg, err := dialog.OnCallbackQuery(ctx, upd.UpdateID, upd.CallbackQuery)
-			if err != nil {
-				return nil, fmt.Errorf("OnCallbackQuery: %w", err)
-			}
-			return newDlg, nil
-		}
+		dlgUpd.CallbackQuery = upd.CallbackQuery
 	default:
 		return nil
 	}
@@ -89,7 +76,7 @@ func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) err
 		}
 	}
 
-	newDlg, err := handler(dlg)
+	newDlg, err := dlg.HandleUpdate(ctx, dlgUpd)
 	if err != nil {
 		return fmt.Errorf("dialog %s: %w", dlg.Name(), err)
 	}
