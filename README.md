@@ -15,7 +15,7 @@ import (
 	"log"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	dialog "github.com/unkeep/telegram-bot-dialog"
+	"github.com/unkeep/telegram-bot-dialog/tgbotdlg"
 )
 
 func main() {
@@ -24,17 +24,17 @@ func main() {
 		log.Panic(err)
 	}
 
-	var dialogsStorage dialog.Storage // TODO: provide dialogs storage
+	var dialogsStorage tgbotdlg.Storage // TODO: provide dialogs storage
 
-	dialogsDispatcher := dialog.NewDispatcher(dialogsStorage)
+	dialogsDispatcher := tgbotdlg.NewDispatcher(dialogsStorage)
 	dialogsDispatcher.RegisterDialogs(
-		func() dialog.Dialog {
+		func() tgbotdlg.Dialog {
 			return &rootDialog{bot: bot}
 		},
-		func() dialog.Dialog {
+		func() tgbotdlg.Dialog {
 			return &enterUserNameDialog{bot: bot}
 		},
-		func() dialog.Dialog {
+		func() tgbotdlg.Dialog {
 			return &enterPasswordDialog{bot: bot}
 		},
 	)
@@ -59,7 +59,7 @@ func (d *rootDialog) Name() string {
 	return "root"
 }
 
-func (d *rootDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+func (d *rootDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
 	if upd.Message == nil {
 		return d, nil
     }
@@ -94,7 +94,7 @@ func (d *enterUserNameDialog) Name() string {
 	return "enter_username"
 }
 
-func (d *enterUserNameDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+func (d *enterUserNameDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
 	if upd.Message == nil {
 		return d, nil
 	}
@@ -115,7 +115,7 @@ func (d *enterPasswordDialog) Name() string {
 	return "enter_password"
 }
 
-func (d *enterPasswordDialog) HandleUpdate(ctx context.Context, upd dialog.Update) (dialog.Dialog, error) {
+func (d *enterPasswordDialog) HandleUpdate(ctx context.Context, upd tgbotdlg.Update) (tgbotdlg.Dialog, error) {
 	if upd.Message == nil {
 		return d, nil
 	}
