@@ -2,6 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/unkeep/telegram-bot-dialog.svg)](https://pkg.go.dev/github.com/unkeep/telegram-bot-dialog)
 [![Build Status](https://app.travis-ci.com/unkeep/telegram-bot-dialog.svg?branch=main)](https://app.travis-ci.com/unkeep/telegram-bot-dialog)
+[![Coverage Status](https://coveralls.io/repos/github/unkeep/telegram-bot-dialog/badge.svg?branch=main)](https://coveralls.io/github/unkeep/telegram-bot-dialog?branch=main)
 
 ## Example
 
