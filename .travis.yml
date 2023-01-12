@@ -5,6 +5,11 @@ language: go
 go:
   - 1.19
 
+install:
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/mattn/goveralls
+  - go install github.com/mattn/goveralls
+
 git:
   depth: 1
 
@@ -12,4 +17,5 @@ notifications:
   email: false
 
 script:
-  - go test -v ./...
+  - go test -race -v -coverprofile=coverage.out ./...
+  - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN

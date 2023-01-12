@@ -1,6 +1,7 @@
 # Simple library for managing Telegram bot stateful dialogs
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/unkeep/telegram-bot-dialog.svg)](https://pkg.go.dev/github.com/unkeep/telegram-bot-dialog)
+[![Build Status](https://app.travis-ci.com/unkeep/telegram-bot-dialog.svg?branch=main)](https://app.travis-ci.com/unkeep/telegram-bot-dialog)
 
 ## Example
 
