@@ -1,130 +1,208 @@
 package tgbotdlg
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func NewDispatcher(storage Storage) *Dispatcher {
-	return &Dispatcher{storage: storage}
+func NewDispatcher(storage Storage, rootDlg Dialog, opts ...optionFunc) *Dispatcher {
+	builtOpts := buildOpts(opts)
+
+	wrapDlg := func(original Dialog) Dialog {
+		if len(builtOpts.interceptors) > 0 {
+			return &dialogWithInterceptors{
+				original:     original,
+				interceptors: builtOpts.interceptors,
+			}
+		}
+		return original
+	}
+
+	dialogs := make(map[string]Dialog, len(builtOpts.dialogs)+1)
+	dialogs[rootDlg.Name()] = wrapDlg(rootDlg)
+
+	for _, dlg := range builtOpts.dialogs {
+		if _, exist := dialogs[dlg.Name()]; exist {
+			panic(fmt.Sprintf("dublicate dialog name found - %q", dlg.Name()))
+		}
+
+		dialogs[dlg.Name()] = wrapDlg(dlg)
+	}
+
+	offChatUpdateHandler := builtOpts.offChatUpdateHandler
+	if offChatUpdateHandler == nil {
+		offChatUpdateHandler = func(context.Context, OffChatUpdate) error { return nil }
+	}
+
+	return &Dispatcher{
+		storage:              storage,
+		dialogs:              dialogs,
+		rootDlg:              rootDlg,
+		offChatUpdateHandler: offChatUpdateHandler,
+	}
 }
 
 // Dispatcher routes users messages to an appropriate dialog
 type Dispatcher struct {
-	storage     Storage
-	register    map[string]func() Dialog
-	rootDlgName string
+	storage              Storage
+	dialogs              map[string]Dialog
+	rootDlg              Dialog
+	offChatUpdateHandler func(context.Context, OffChatUpdate) error
 }
 
-// RegisterDialogs registers dialogs which can receive users messages.
-// Each func must return a pointer to a new dialog instance with a unique and constant Name
-// The first registered dialog (root dialog) is the entry point for users messages if a conversation has not yet been
-// initiated by the user.
-func (e *Dispatcher) RegisterDialogs(newRootFunc func() Dialog, newDlgFuncs ...func() Dialog) {
-	e.register = make(map[string]func() Dialog, len(newDlgFuncs)+1)
+// HandleBotUpdate handles an update of telegram bot
+// in-chat update is handled by active dialog, off-chat update - by optionally provided handler
+func (d *Dispatcher) HandleBotUpdate(ctx context.Context, upd tgbotapi.Update) error {
+	botUpd := botUpdate(upd)
 
-	rootDlg := newRootFunc()
-	e.rootDlgName = rootDlg.Name()
-	e.register[rootDlg.Name()] = newRootFunc
-
-	for _, newDlgFunc := range newDlgFuncs {
-		d := newDlgFunc()
-		if _, exist := e.register[d.Name()]; exist {
-			panic(fmt.Sprintf("dublicate dialog name found - %q", d.Name()))
+	chatID, ok := botUpd.chatID()
+	if !ok {
+		if err := d.offChatUpdateHandler(ctx, botUpd.toOffChatUpdate()); err != nil {
+			return fmt.Errorf("handle off-chat update: %w", err)
 		}
-		e.register[d.Name()] = newDlgFunc
-	}
-}
-
-// HandleUpdate handles an update from telegram chat.
-// Note: it currently ignores other updates than users messages or inline buttons clicks
-func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) error {
-	var chatID, userID int64
-	var dlgUpd Update
-
-	switch {
-	case upd.Message != nil:
-		chatID, userID = upd.Message.Chat.ID, upd.Message.From.ID
-		dlgUpd.Message = upd.Message
-	case upd.CallbackQuery != nil && upd.CallbackQuery.Message != nil:
-		chatID, userID = upd.CallbackQuery.Message.Chat.ID, upd.CallbackQuery.From.ID
-		dlgUpd.CallbackQuery = upd.CallbackQuery
-	default:
 		return nil
 	}
 
-	data, err := e.storage.GetDialog(ctx, chatID, userID)
-	if err != nil {
-		if !errors.Is(err, ErrNotFound) {
-			return fmt.Errorf("storage.GetDialog: %w", err)
+	handler := func(ctx context.Context, dlg Dialog) (*Switch, error) {
+		s, err := dlg.HandleChatUpdate(ctx, botUpd.toChatUpdate())
+		if err != nil {
+			return nil, fmt.Errorf("HandleChatUpdate: %w", err)
 		}
-		data = &Data{Name: e.rootDlgName}
+		return s, nil
 	}
 
-	dlg, err := e.newDialog(data.Name)
-	if err != nil {
-		return fmt.Errorf("newDialog: %w", err)
-	}
+	return d.handleDialogEvent(ctx, chatID, handler)
+}
 
-	if len(data.State) > 0 && string(data.State) != "{}" {
-		if err := json.Unmarshal(data.State, dlg); err != nil {
-			return fmt.Errorf("unmarshal dialog stateJSON: %w", err)
+func (d *Dispatcher) HandleForeignEvent(ctx context.Context, chatID int64, event any) error {
+	handler := func(ctx context.Context, dlg Dialog) (*Switch, error) {
+		s, err := dlg.HandleForeignEvent(ctx, chatID, event)
+		if err != nil {
+			return nil, fmt.Errorf("HandleForeignEvent: %w", err)
 		}
+		return s, nil
 	}
 
-	newDlg, err := dlg.HandleUpdate(ctx, dlgUpd)
+	return d.handleDialogEvent(ctx, chatID, handler)
+}
+
+func (d *Dispatcher) ForceDialog(ctx context.Context, chatID int64, switchTo Switch) error {
+	dlg, state, err := d.getCurrentDialogAndState(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("dialog %s: %w", dlg.Name(), err)
+		return fmt.Errorf("get current dialog: %w", err)
 	}
 
-	newStateJSON, err := json.Marshal(newDlg)
+	if err := d.switchDialog(ctx, chatID, dlg, state, switchTo); err != nil {
+		return fmt.Errorf("force switch %q dialog to %q: %w", dlg.Name(), switchTo.name, err)
+	}
+
+	return nil
+}
+
+func (d *Dispatcher) handleDialogEvent(ctx context.Context, chatID int64, handler func(context.Context, Dialog) (*Switch, error)) error {
+	dlg, state, err := d.getCurrentDialogAndState(ctx, chatID)
 	if err != nil {
-		return fmt.Errorf("marshal new dialog stateJSON: %w", err)
+		return fmt.Errorf("get current dialog: %w", err)
 	}
 
-	newData := &Data{
-		Name:  newDlg.Name(),
-		State: newStateJSON,
+	stateRaw, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("dialog %q: marhsal state: %w", dlg.Name(), err)
 	}
 
-	if data != nil && newData.IsEquivalent(data) {
-		// old and new dialogs are equivalent, no sense to update it in storage
+	ctx = ctxWithState(ctx, state)
+	switchTo, err := handler(ctx, dlg)
+	if err != nil {
+		return fmt.Errorf("dialog %q: handle event: %w", dlg.Name(), err)
+	}
+
+	if switchTo != nil {
+		if err := d.switchDialog(ctx, chatID, dlg, state, *switchTo); err != nil {
+			return fmt.Errorf("switch %q dialog to %q: %w", dlg.Name(), switchTo.name, err)
+		}
 		return nil
 	}
 
-	if err := e.storage.SaveDialog(ctx, chatID, userID, newData); err != nil {
+	newStateRaw, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("dialog %q: marhsal state: %w", dlg.Name(), err)
+	}
+
+	if bytes.Equal(stateRaw, newStateRaw) {
+		// nothing changed
+		return nil
+	}
+
+	newData := Data{
+		Name:  dlg.Name(),
+		State: newStateRaw,
+	}
+	if err := d.storage.SaveDialog(ctx, chatID, newData); err != nil {
 		return fmt.Errorf("storage.SaveDialog: %w", err)
 	}
 
 	return nil
 }
 
-func (e *Dispatcher) newDialog(name string) (Dialog, error) {
-	newFunc, ok := e.register[name]
+func (d *Dispatcher) switchDialog(ctx context.Context, chatID int64, dlg Dialog, state any, switchTo Switch) error {
+	nextDlg, ok := d.dialogs[switchTo.name]
 	if !ok {
-		return nil, fmt.Errorf("unregistered dialog %q", name)
+		return fmt.Errorf("dialog %q: unregistered", switchTo.name)
 	}
 
-	return newFunc(), nil
+	ctx = ctxWithState(ctx, state)
+	if err := dlg.OnFinish(ctx, chatID); err != nil {
+		return fmt.Errorf("dialog %q finish: %w", dlg.Name(), err)
+	}
+
+	nextState := switchTo.initialState
+	ctx = ctxWithState(ctx, nextState)
+
+	if err := nextDlg.OnStart(ctx, chatID); err != nil {
+		return fmt.Errorf("dialog %q start: %w", switchTo.name, err)
+	}
+
+	nextStateRaw, err := json.Marshal(nextState)
+	if err != nil {
+		return fmt.Errorf("dialog %q: marhsal state: %w", nextDlg.Name(), err)
+	}
+
+	nextData := Data{
+		Name:  nextDlg.Name(),
+		State: nextStateRaw,
+	}
+
+	if err := d.storage.SaveDialog(ctx, chatID, nextData); err != nil {
+		return fmt.Errorf("storage.SaveDialog: %w", err)
+	}
+
+	return nil
 }
 
-func (d *Data) IsEquivalent(other *Data) bool {
-	if d.Name != other.Name {
-		return false
+func (d *Dispatcher) getCurrentDialogAndState(ctx context.Context, chatID int64) (Dialog, any, error) {
+	data, err := d.storage.GetDialog(ctx, chatID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("storage.GetDialog: %w", err)
 	}
 
-	stateStr := string(d.State)
-	if stateStr == "{}" {
-		stateStr = ""
-	}
-	otherStateStr := string(other.State)
-	if otherStateStr == "{}" {
-		otherStateStr = ""
+	if data == nil {
+		// absence of dialog data for a chat is considered as a root dialog is active atm.
+		return d.rootDlg, d.rootDlg.newState(), nil
 	}
 
-	return stateStr == otherStateStr
+	dlg, ok := d.dialogs[data.Name]
+	if !ok {
+		return nil, nil, fmt.Errorf("dialog %q: unregistered", data.Name)
+	}
+
+	state := dlg.newState()
+	if err := json.Unmarshal(data.State, state); err != nil {
+		return nil, nil, fmt.Errorf("dialog %q: unmarshal state: %w", dlg.Name(), err)
+	}
+
+	return dlg, state, nil
 }
