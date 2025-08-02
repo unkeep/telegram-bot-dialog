@@ -103,6 +103,24 @@ func (e *Dispatcher) HandleUpdate(ctx context.Context, upd *tgbotapi.Update) err
 	return nil
 }
 
+func (e *Dispatcher) ForceDialog(ctx context.Context, chatID, userID int64, dlg Dialog) error {
+	newStateJSON, err := json.Marshal(dlg)
+	if err != nil {
+		return fmt.Errorf("marshal dialog stateJSON: %w", err)
+	}
+
+	newData := &Data{
+		Name:  dlg.Name(),
+		State: newStateJSON,
+	}
+
+	if err := e.storage.SaveDialog(ctx, chatID, userID, newData); err != nil {
+		return fmt.Errorf("storage.SaveDialog: %w", err)
+	}
+
+	return nil
+}
+
 func (e *Dispatcher) newDialog(name string) (Dialog, error) {
 	newFunc, ok := e.register[name]
 	if !ok {
